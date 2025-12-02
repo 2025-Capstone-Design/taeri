@@ -196,7 +196,7 @@ const SMOOTH_FACTOR = 0.15; // 부드러움 정도 (0.05~0.3)
 let lastAccelZ = 0;
 let isStepping = false;
 const STEP_THRESHOLD = 1.2; // 걷기 감지 임계값 (m/s^2)
-const STEP_LENGTH_LAT = 0.000007; // 한 걸음당 이동할 위도 변화량 (약 0.7m)
+const STEP_LENGTH_LAT = 0.000020; // 한 걸음당 이동할 위도 변화량 (약 0.7m)
 
 // 1. Heading 필터링 함수 (360도 점프 방지 기능 포함)
 function applyFilter(newRaw, oldSmooth) {
