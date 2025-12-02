@@ -186,31 +186,72 @@ EDGES_DATA.forEach(edge => {
 
 // 전역 변수
 let canvas, ctx, route = null, watching = false, watchId = null;
-let userPos = { lat: 0, lon: 0, heading: 0, acc: 0 }; // 👈 heading 속성 추가 및 초기화
+let userPos = { lat: 0, lon: 0, heading: 0, acc: 0 }; // 사용자 위치/방향
 let offset = {lat:0, lon:0};
 let scale = 1, tx = 0, ty = 0; // 줌/팬 변수
 
-// 부드러운 움직임을 위한 필터 변수
-let smoothedHeading = 0; // 👈 필터링된 값을 저장할 변수
-const SMOOTH_FACTOR = 0.15; // 부드러움 정도 조절
+// --- 필터 및 PDR 로직 변수 ---
+let smoothedHeading = 0;
+const SMOOTH_FACTOR = 0.15; // 부드러움 정도 (0.05~0.3)
+let lastAccelZ = 0;
+let isStepping = false;
+const STEP_THRESHOLD = 1.2; // 걷기 감지 임계값 (m/s^2)
+const STEP_LENGTH_LAT = 0.000007; // 한 걸음당 이동할 위도 변화량 (약 0.7m)
 
 // 1. Heading 필터링 함수 (360도 점프 방지 기능 포함)
 function applyFilter(newRaw, oldSmooth) {
-    // 1. 차이 계산: 1도에서 359도로 갈 때 (-2도)처럼 최단 경로로 계산
     let diff = newRaw - oldSmooth;
-
-    // 2. 180도 이상 차이 나면 반대로 돌림 (360도 래핑 문제 해결)
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
-
-    // 3. 필터 적용 (현재 값과 이전 값의 가중 평균)
     return oldSmooth + (diff * SMOOTH_FACTOR);
 }
+
 // URL 파라미터를 읽는 함수
 function getUrlParam(name) {
     const urlParams = new URLSearchParams(window.location.search);
     return urlParams.get(name);
 }
+
+// 나침반 센서 데이터 처리 함수 (RAW heading 업데이트)
+const sensorHandler = function(event) {
+    let heading = null;
+    if (event.webkitCompassHeading) { // iOS
+        heading = event.webkitCompassHeading;
+    } else if (event.alpha) { // Android (스크린 회전 보정 포함)
+        let screenAngle = (window.screen.orientation.angle || 0);
+        heading = 360 - ((event.alpha + screenAngle) % 360);
+    }
+    if (heading !== null) {
+        userPos.heading = heading;
+    }
+};
+
+// PDR (추측 항법) - 걸음 감지 및 위치 업데이트 함수
+const handleMotion = function(event) {
+    if (!watching || !userPos) return;
+
+    const accZ = event.accelerationIncludingGravity.z;
+    const accelDiff = accZ - lastAccelZ;
+
+    // 걸음 감지 (Z축 가속도 변화가 임계값을 넘을 때)
+    if (accelDiff > STEP_THRESHOLD && !isStepping) {
+        isStepping = true;
+        
+        // 방향 계산 (필터링된 방향 사용)
+        const headingRad = smoothedHeading * (Math.PI / 180);
+
+        // 위치 업데이트 (PDR 벡터 이동)
+        userPos.lat += Math.cos(headingRad) * STEP_LENGTH_LAT;
+        userPos.lon += Math.sin(headingRad) * STEP_LENGTH_LAT;
+        
+        draw(); // 이동 후 바로 캔버스 업데이트
+        updateStatus("ok", "🚶 PDR 활성: 걸음 감지 및 위치 추적 중...");
+    } else if (accelDiff < -STEP_THRESHOLD) {
+        isStepping = false;
+    }
+
+    lastAccelZ = accZ;
+};
 
 // DOM 로드 후 초기화
 window.onload = function() {
@@ -228,14 +269,14 @@ window.onload = function() {
     startSel.value = "A"; // 기본값 설정
     endSel.value = "I";
     
-    // 🚨 URL 파라미터 'area' 확인 및 출발지 설정 (도착지 대신 출발지로 변경)
-    const initialStart = getUrlParam('area'); // 'area' 파라미터 사용
+// URL 파라미터 처리 로직
+    const initialStart = getUrlParam('area');
     let isValidInitialStart = false;
     
     if (initialStart) {
         const startId = initialStart.toUpperCase().trim();
         if (AREAS[startId]) {
-            startSel.value = startId; // 👈 출발지로 설정
+            startSel.value = startId;
             document.getElementById('qr-hint').textContent = `(URL: ${startId}로 출발지 설정됨)`;
             updateStatus("ok", `URL 파라미터: 출발지가 ${AREAS[startId].name}으로 설정되었습니다. 도착지를 선택하고 경로 찾기를 누르세요.`);
             isValidInitialStart = true;
@@ -243,7 +284,7 @@ window.onload = function() {
     }
 
 
-    // 이벤트
+// 이벤트
     document.getElementById('find').onclick = findRoute;
     document.getElementById('nav-btn').onclick = toggleNav;
     setupCanvasEvents();
@@ -251,7 +292,6 @@ window.onload = function() {
     draw();
     lucide.createIcons();
     
-    // 유효한 area 파라미터가 없으면 기본 상태 메시지 유지
     if (!isValidInitialStart) {
         updateStatus("err", "준비 중: 출발지와 도착지를 선택하세요.");
     }
@@ -259,9 +299,8 @@ window.onload = function() {
 
 function resizeCanvas() {
     const w = canvas.parentElement.clientWidth;
-    // 가로 폭에 따라 캔버스 크기를 조절하여 반응형으로 만듭니다.
     canvas.width = w > 900 ? 900 : w; 
-    canvas.height = canvas.width * 0.6; // 가로세로 비율 유지
+    canvas.height = canvas.width * 0.6;
     if (canvas.height < 400) canvas.height = 400;
     draw();
 }
@@ -320,9 +359,8 @@ function toggleNav() {
     }
 }
 
-// startNav 함수 (센서 및 GPS 초기화, 통합 로직)
+// startNav 함수 (PDR 및 GPS 센서 초기화)
 function startNav() {
-    // 1. GPS 지원 여부 확인 (기존 코드 유지)
     if (!navigator.geolocation) {
         updateStatus("err", "GPS를 지원하지 않아요");
         return;
@@ -333,28 +371,20 @@ function startNav() {
     document.getElementById('nav-btn').classList.replace('bg-green-500','bg-red-500');
     updateStatus("ok", "GPS 연결 중...");
     
-    // **🚨 수정된 부분: 센서 로직 정의 (새로운 sensorHandler)**
-    const sensorHandler = function(event) {
-        let heading = null;
-        if (event.webkitCompassHeading) { // iOS
-            heading = event.webkitCompassHeading;
-        } else if (event.alpha) { // Android
-            let screenAngle = (window.screen.orientation.angle || 0);
-            heading = 360 - ((event.alpha + screenAngle) % 360);
-        }
-        // userPos.heading에 필터링되지 않은 RAW 센서 값 저장
-        if (heading !== null) {
-            userPos.heading = heading;
-        }
-    };
-
-    // 2. 방향 센서 리스너 등록
+    // 1. 방향 센서 및 PDR 센서 등록 (권한 요청 포함)
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
         DeviceOrientationEvent.requestPermission().then(r => {
-            if (r === 'granted') window.addEventListener('deviceorientation', sensorHandler);
+            if (r === 'granted') {
+                window.addEventListener('deviceorientation', sensorHandler);
+                window.addEventListener('devicemotion', handleMotion); // PDR 활성화
+            } else {
+                 updateStatus("err", "나침반 권한이 거부되어 방향 추적이 불가능합니다.");
+            }
         }).catch(e => console.error("Orientation permission denied:", e));
     } else {
+        // 안드로이드 (권한 요청이 필요 없는 경우)
         window.addEventListener('deviceorientation', sensorHandler);
+        window.addEventListener('devicemotion', handleMotion); // PDR 활성화
     }
     
     // 3. GPS 시작 (오프셋 계산 및 초기 위치 설정)
@@ -411,15 +441,19 @@ function startNav() {
 
 
 
+// stopNav 함수 (센서 제거)
 function stopNav() {
     watching = false;
     if (watchId) navigator.geolocation.clearWatch(watchId);
-    window.removeEventListener('deviceorientation', oriHandler);
+    
+    // 🚨 센서 제거: PDR과 방향 센서를 모두 제거
+    window.removeEventListener('deviceorientation', sensorHandler); 
+    window.removeEventListener('devicemotion', handleMotion); 
+    
     document.getElementById('nav-btn').textContent = "재개";
     document.getElementById('nav-btn').classList.replace('bg-red-500','bg-yellow-500');
     updateStatus("err", "내비게이션 일시 정지됨");
 }
-
 function onLocation(pos) {
     if (!watching || !route) return;
 
