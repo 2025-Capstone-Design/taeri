@@ -132,12 +132,19 @@ const handleMotion = function(event) {
     lastAccelZ = accZ;
 };
 
-// 나침반 센서 데이터 처리 함수 (RAW heading 업데이트)
+// sensorHandler 함수 내부 (수정된 코드)
+
 const sensorHandler = function(event) {
+    // 🚨🚨🚨 이 줄을 추가하세요 🚨🚨🚨
+    console.log("SENSOR STATUS: Sensor event received.");
+    
+    if (!userPos) return;
+
     let heading = null;
     if (event.webkitCompassHeading) { // iOS
         heading = event.webkitCompassHeading;
-    } else if (event.alpha) { // Android (스크린 회전 보정 포함)
+    } else if (event.alpha) { // Android
+        // ... (나머지 복잡한 보정 로직) ...
         let screenAngle = (window.screen.orientation.angle || 0);
         heading = 360 - ((event.alpha + screenAngle) % 360);
     }
@@ -145,7 +152,6 @@ const sensorHandler = function(event) {
         userPos.heading = heading;
     }
 };
-
 
 // URL 파라미터를 읽는 함수
 function getUrlParam(name) {
