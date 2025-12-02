@@ -186,12 +186,13 @@ EDGES_DATA.forEach(edge => {
 
 // 전역 변수
 let canvas, ctx, route = null, watching = false, watchId = null;
-let userPos = null, heading = 0, offset = {lat:0, lon:0};
+let userPos = { lat: 0, lon: 0, heading: 0, acc: 0 }; // 👈 heading 속성 추가 및 초기화
+let offset = {lat:0, lon:0};
 let scale = 1, tx = 0, ty = 0; // 줌/팬 변수
+
 // 부드러운 움직임을 위한 필터 변수
-let smoothedHeading = 0;
-// 부드러움 정도 조절 (0.15): 숫자가 낮을수록 부드럽지만 딜레이가 심해집니다. (0.05 ~ 0.3 사이 권장)
-const SMOOTH_FACTOR = 0.15; 
+let smoothedHeading = 0; // 👈 필터링된 값을 저장할 변수
+const SMOOTH_FACTOR = 0.15; // 부드러움 정도 조절
 
 // 1. Heading 필터링 함수 (360도 점프 방지 기능 포함)
 function applyFilter(newRaw, oldSmooth) {
@@ -319,11 +320,60 @@ function toggleNav() {
     }
 }
 
+// startNav 함수 (센서 및 GPS 초기화, 통합 로직)
 function startNav() {
+    // 1. GPS 지원 여부 확인 (기존 코드 유지)
     if (!navigator.geolocation) {
         updateStatus("err", "GPS를 지원하지 않아요");
         return;
     }
+    
+    watching = true;
+    document.getElementById('nav-btn').textContent = "정지";
+    document.getElementById('nav-btn').classList.replace('bg-green-500','bg-red-500');
+    updateStatus("ok", "GPS 연결 중...");
+    
+    // **🚨 수정된 부분: 센서 로직 정의 (새로운 sensorHandler)**
+    const sensorHandler = function(event) {
+        let heading = null;
+        if (event.webkitCompassHeading) { // iOS
+            heading = event.webkitCompassHeading;
+        } else if (event.alpha) { // Android
+            let screenAngle = (window.screen.orientation.angle || 0);
+            heading = 360 - ((event.alpha + screenAngle) % 360);
+        }
+        // userPos.heading에 필터링되지 않은 RAW 센서 값 저장
+        if (heading !== null) {
+            userPos.heading = heading;
+        }
+    };
+
+    // 2. 방향 센서 리스너 등록
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(r => {
+            if (r === 'granted') window.addEventListener('deviceorientation', sensorHandler);
+        }).catch(e => console.error("Orientation permission denied:", e));
+    } else {
+        window.addEventListener('deviceorientation', sensorHandler);
+    }
+    
+    // 3. GPS 시작 (오프셋 계산 및 초기 위치 설정)
+    navigator.geolocation.getCurrentPosition(pos => {
+        const realLat = pos.coords.latitude;
+        const realLon = pos.coords.longitude;
+        const startArea = AREAS[route.path[0]];
+        offset.lat = realLat - startArea.lat;
+        offset.lon = realLon - startArea.lon;
+        updateStatus("ok", "오프셋 설정 완료! 이동 시작하세요");
+        onLocation(pos);
+    }, onError, { enableHighAccuracy: true, timeout: 5000 });
+
+    watchId = navigator.geolocation.watchPosition(onLocation, onError, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 5000
+    });
+}
     
     watching = true;
     document.getElementById('nav-btn').textContent = "정지";
@@ -358,7 +408,7 @@ function startNav() {
         maximumAge: 0,
         timeout: 5000
     });
-}
+
 
 function stopNav() {
     watching = false;
@@ -430,11 +480,7 @@ function onLocation(pos) {
     draw();
 }
 
-function oriHandler(e) {
-    // 디바이스 방향 센서 데이터 처리 (heading 변수 업데이트)
-    // webkit-device-orientation은 절대값(compass)을 alpha에 제공합니다.
-    if (e.alpha !== null) heading = e.alpha; 
-}
+
 
 function onError(e) {
     if (watching) {
