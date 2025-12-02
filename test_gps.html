@@ -81,110 +81,9 @@
 </div>
 
 <script>
-    
-window.addEventListener('deviceorientation', function(event) {
-    if (!userPos) return;
-
-    let heading = null;
-
-    // 1. iOS (아이폰): 가장 안정적이며 웹킷 고유 센서 사용
-    if (event.webkitCompassHeading) {
-        heading = event.webkitCompassHeading;
-    } 
-    // 2. Android (안드로이드): 화면 회전 보정 필수
-    else if (event.alpha) {
-        let alpha = event.alpha;
-        // 현재 화면이 세로/가로로 돌아간 각도를 가져옵니다. (0, 90, 180, 270)
-        let screenAngle = (window.screen.orientation.angle || 0);
-
-        // 오차 보정: raw alpha 값에 화면 회전 각도를 더해줍니다.
-        let rawHeading = alpha + screenAngle; 
-        
-        // 360에서 빼서 북쪽(0도)을 위로 맞추고 0~360 범위 유지
-        heading = 360 - (rawHeading % 360); 
-
-        // 🚨 디버깅용: 이 값이 변하는지 F12 콘솔에서 확인해보세요.
-        console.log("보정된 Heading:", heading.toFixed(2));
-    }
-
-    // 방향 값이 있으면 userPos에 적용
-    if (heading !== null) {
-        userPos.heading = heading;
-    }
-});
-    const btn = document.getElementById("permissionBtn");
-btn.addEventListener("click", () => {
-    // iOS 13+ 권한 요청
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission()
-            .then(response => {
-                if (response === 'granted') {
-                    alert("나침반 권한 허용됨! 이제 부채꼴이 움직입니다.");
-                } else {
-                    alert("권한 거부됨.");
-                }
-            })
-            .catch(console.error);
-    } else {
-        alert("이 기기는 권한 요청이 필요 없습니다. (안드로이드거나 구형 iOS)");
-    }
-});
-// 데이터 정의
-const AREAS = {
-    A: {name:"국제선 도착", lat:37.510000, lon:127.050000},
-    B: {name:"면세품 수령", lat:37.510000, lon:127.051800},
-    C: {name:"환전소", lat:37.510000, lon:127.053600},
-    D: {name:"국내선 체크인", lat:37.508500, lon:127.050000},
-    E: {name:"출국 심사대", lat:37.508500, lon:127.051800},
-    F: {name:"푸드코트", lat:37.508500, lon:127.053600},
-    G: {name:"라운지", lat:37.507000, lon:127.050000},
-    H: {name:"면세점 중앙", lat:37.507000, lon:127.051800},
-    I: {name:"탑승 게이트", lat:37.507000, lon:127.053600}
-};
-
-// 엣지(연결) 데이터 (양방향을 위해 ALL_EDGES를 생성하는 기본 데이터)
-const EDGES_DATA = [
-    {u:"A", v:"B", dist:15, instr:"면세품 수령 방향으로 직진", turn:"arrow-right"}, // A->B 방향 변경
-    {u:"B", v:"C", dist:15, instr:"환전소 방향으로 우회전 후 직진", turn:"corner-down-right"},
-    {u:"D", v:"E", dist:15, instr:"출국 심사대 방향으로 직진", turn:"arrow-right"}, // D->E 방향 변경
-    {u:"E", v:"F", dist:15, instr:"푸드코트 방향으로 직진", turn:"arrow-right"},
-    {u:"G", v:"H", dist:15, instr:"면세점 중앙 구역 방향으로 직진", turn:"arrow-right"},
-    {u:"H", v:"I", dist:15, instr:"탑승 게이트 방향으로 직진", turn:"arrow-right"},
-    {u:"A", v:"D", dist:17, instr:"2층 국내선 체크인 방향 에스컬레이터 이용", turn:"arrow-down"}, // A->D 방향 변경
-    {u:"B", v:"E", dist:17, instr:"2층 출국 심사대 방향 에스컬레이터 이용", turn:"arrow-down"},
-    {u:"C", v:"F", dist:17, instr:"2층 푸드코트 방향 에스컬레이터 이용", turn:"arrow-down"},
-    {u:"D", v:"G", dist:17, instr:"3층 라운지 방향 에스컬레이터 이용", turn:"arrow-down"},
-    {u:"E", v:"H", dist:17, instr:"3층 면세점 중앙 방향 에스컬레이터 이용", turn:"arrow-down"},
-    {u:"F", v:"I", dist:17, instr:"3층 탑승 게이트 방향 에스컬레이터 이용", turn:"arrow-down"},
-    {u:"A", v:"E", dist:21, instr:"중앙 홀을 가로질러 출국 심사대 방향으로 직진", turn:"arrow-right"},
-    {u:"B", v:"D", dist:21, instr:"중앙 홀을 가로질러 국내선 체크인 방향으로 직진", turn:"arrow-left"},
-    {u:"B", v:"F", dist:21, instr:"푸드코트 방향으로 우회전", turn:"corner-down-right"},
-    {u:"E", v:"C", dist:21, instr:"환전소 방향으로 좌회전", turn:"corner-down-left"}
-];
-// 양방향 연결 전체 리스트 (다익스트라용)
-const ALL_EDGES = [];
-EDGES_DATA.forEach(edge => {
-    // 순방향 추가
-    ALL_EDGES.push({ from: edge.u, to: edge.v, dist: edge.dist, instruction: edge.instr, icon: edge.turn });
-    // 역방향 추가 (간단하게 역방향 설명 생성)
-    ALL_EDGES.push({ 
-        from: edge.v, 
-        to: edge.u, 
-        dist: edge.dist, 
-        instruction: edge.instr.replace(/방향으로 직진|방향으로 우회전|방향으로 좌회전/g, '방향으로 되돌아감').replace(/이용/g, '이용 후 되돌아감'), 
-        icon: {
-            'arrow-right': 'arrow-left',
-            'arrow-left': 'arrow-right',
-            'arrow-down': 'arrow-up',
-            'arrow-up': 'arrow-down',
-            'corner-down-right': 'corner-down-left',
-            'corner-down-left': 'corner-down-right'
-        }[edge.turn] || 'arrow-left' // 역방향 아이콘을 반대로 설정
-    });
-});
-
-
-// 전역 변수
+// ====================================================================
+// 전역 변수 및 PDR/필터 정의
+// ====================================================================
 let canvas, ctx, route = null, watching = false, watchId = null;
 let userPos = { lat: 0, lon: 0, heading: 0, acc: 0 }; // 사용자 위치/방향
 let offset = {lat:0, lon:0};
@@ -192,11 +91,11 @@ let scale = 1, tx = 0, ty = 0; // 줌/팬 변수
 
 // --- 필터 및 PDR 로직 변수 ---
 let smoothedHeading = 0;
-const SMOOTH_FACTOR = 0.15; // 부드러움 정도 (0.05~0.3)
+const SMOOTH_FACTOR = 0.15; // 부드러움 정도 조절 (0.05 ~ 0.3)
 let lastAccelZ = 0;
 let isStepping = false;
 const STEP_THRESHOLD = 1.2; // 걷기 감지 임계값 (m/s^2)
-const STEP_LENGTH_LAT = 0.000020; // 한 걸음당 이동할 위도 변화량 (약 0.7m)
+const STEP_LENGTH_LAT = 0.000020; // 👈 한 걸음당 이동할 위도 변화량 (증폭된 값)
 
 // 1. Heading 필터링 함수 (360도 점프 방지 기능 포함)
 function applyFilter(newRaw, oldSmooth) {
@@ -206,11 +105,32 @@ function applyFilter(newRaw, oldSmooth) {
     return oldSmooth + (diff * SMOOTH_FACTOR);
 }
 
-// URL 파라미터를 읽는 함수
-function getUrlParam(name) {
-    const urlParams = new URLSearchParams(window.location.search);
-    return urlParams.get(name);
-}
+// PDR (추측 항법) - 걸음 감지 및 위치 업데이트 함수
+const handleMotion = function(event) {
+    if (!watching || !userPos) return;
+
+    const accZ = event.accelerationIncludingGravity.z;
+    const accelDiff = accZ - lastAccelZ;
+
+    // 걸음 감지
+    if (accelDiff > STEP_THRESHOLD && !isStepping) {
+        isStepping = true;
+        
+        // 방향 계산 (필터링된 방향 사용)
+        const headingRad = smoothedHeading * (Math.PI / 180);
+
+        // 위치 업데이트 (PDR 벡터 이동)
+        userPos.lat += Math.cos(headingRad) * STEP_LENGTH_LAT;
+        userPos.lon += Math.sin(headingRad) * STEP_LENGTH_LAT;
+        
+        draw(); 
+        updateStatus("ok", "🚶 PDR 활성: 걸음 감지 및 위치 추적 중...");
+    } else if (accelDiff < -STEP_THRESHOLD) {
+        isStepping = false;
+    }
+
+    lastAccelZ = accZ;
+};
 
 // 나침반 센서 데이터 처리 함수 (RAW heading 업데이트)
 const sensorHandler = function(event) {
@@ -226,32 +146,12 @@ const sensorHandler = function(event) {
     }
 };
 
-// PDR (추측 항법) - 걸음 감지 및 위치 업데이트 함수
-const handleMotion = function(event) {
-    if (!watching || !userPos) return;
 
-    const accZ = event.accelerationIncludingGravity.z;
-    const accelDiff = accZ - lastAccelZ;
-
-    // 걸음 감지 (Z축 가속도 변화가 임계값을 넘을 때)
-    if (accelDiff > STEP_THRESHOLD && !isStepping) {
-        isStepping = true;
-        
-        // 방향 계산 (필터링된 방향 사용)
-        const headingRad = smoothedHeading * (Math.PI / 180);
-
-        // 위치 업데이트 (PDR 벡터 이동)
-        userPos.lat += Math.cos(headingRad) * STEP_LENGTH_LAT;
-        userPos.lon += Math.sin(headingRad) * STEP_LENGTH_LAT;
-        
-        draw(); // 이동 후 바로 캔버스 업데이트
-        updateStatus("ok", "🚶 PDR 활성: 걸음 감지 및 위치 추적 중...");
-    } else if (accelDiff < -STEP_THRESHOLD) {
-        isStepping = false;
-    }
-
-    lastAccelZ = accZ;
-};
+// URL 파라미터를 읽는 함수
+function getUrlParam(name) {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get(name);
+}
 
 // DOM 로드 후 초기화
 window.onload = function() {
@@ -269,7 +169,7 @@ window.onload = function() {
     startSel.value = "A"; // 기본값 설정
     endSel.value = "I";
     
-// URL 파라미터 처리 로직
+    // URL 파라미터 처리 로직
     const initialStart = getUrlParam('area');
     let isValidInitialStart = false;
     
@@ -283,10 +183,28 @@ window.onload = function() {
         }
     }
 
-
-// 이벤트
+    // 이벤트
     document.getElementById('find').onclick = findRoute;
     document.getElementById('nav-btn').onclick = toggleNav;
+    // 아이폰 권한 버튼 리스너 (HTML body의 permissionBtn과 연결)
+    const btn = document.getElementById("permissionBtn");
+    btn.addEventListener("click", () => {
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            DeviceOrientationEvent.requestPermission()
+                .then(response => {
+                    if (response === 'granted') {
+                        alert("나침반 권한 허용됨!");
+                        document.getElementById("permissionBtn").style.display = 'none'; 
+                    } else {
+                        alert("권한 거부됨.");
+                    }
+                })
+                .catch(console.error);
+        } else {
+            alert("이 기기는 권한 요청이 필요 없습니다.");
+        }
+    });
+
     setupCanvasEvents();
     resizeCanvas();
     draw();
@@ -371,7 +289,7 @@ function startNav() {
     document.getElementById('nav-btn').classList.replace('bg-green-500','bg-red-500');
     updateStatus("ok", "GPS 연결 중...");
     
-    // 1. 방향 센서 및 PDR 센서 등록 (권한 요청 포함)
+    // 1. 센서 리스너 등록 (PDR 및 방향)
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
         DeviceOrientationEvent.requestPermission().then(r => {
             if (r === 'granted') {
@@ -382,12 +300,11 @@ function startNav() {
             }
         }).catch(e => console.error("Orientation permission denied:", e));
     } else {
-        // 안드로이드 (권한 요청이 필요 없는 경우)
         window.addEventListener('deviceorientation', sensorHandler);
         window.addEventListener('devicemotion', handleMotion); // PDR 활성화
     }
     
-    // 3. GPS 시작 (오프셋 계산 및 초기 위치 설정)
+    // 2. GPS 시작 (오프셋 계산 및 초기 위치 설정)
     navigator.geolocation.getCurrentPosition(pos => {
         const realLat = pos.coords.latitude;
         const realLon = pos.coords.longitude;
@@ -404,49 +321,12 @@ function startNav() {
         timeout: 5000
     });
 }
-    
-    watching = true;
-    document.getElementById('nav-btn').textContent = "정지";
-    document.getElementById('nav-btn').classList.replace('bg-green-500','bg-red-500');
-    updateStatus("ok", "GPS 연결 중...");
 
-    // 방향 센서
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission().then(r => {
-            if (r === 'granted') window.addEventListener('deviceorientation', oriHandler);
-        }).catch(e => console.error("Orientation permission denied:", e));
-    } else {
-        window.addEventListener('deviceorientation', oriHandler);
-    }
-
-    // GPS 시작 (오프셋 계산 및 초기 위치 설정)
-    navigator.geolocation.getCurrentPosition(pos => {
-        const realLat = pos.coords.latitude;
-        const realLon = pos.coords.longitude;
-        const startArea = AREAS[route.path[0]];
-        // 오프셋 계산 (실제 GPS와 가상 지도 시작점의 차이)
-        offset.lat = realLat - startArea.lat;
-        offset.lon = realLon - startArea.lon;
-        updateStatus("ok", "오프셋 설정 완료! 이동 시작하세요");
-        
-        // 첫 위치 처리
-        onLocation(pos);
-    }, onError, { enableHighAccuracy: true, timeout: 5000 });
-
-    watchId = navigator.geolocation.watchPosition(onLocation, onError, {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 5000
-    });
-
-
-
-// stopNav 함수 (센서 제거)
 function stopNav() {
     watching = false;
     if (watchId) navigator.geolocation.clearWatch(watchId);
     
-    // 🚨 센서 제거: PDR과 방향 센서를 모두 제거
+    // PDR 및 방향 센서 모두 제거
     window.removeEventListener('deviceorientation', sensorHandler); 
     window.removeEventListener('devicemotion', handleMotion); 
     
@@ -454,18 +334,18 @@ function stopNav() {
     document.getElementById('nav-btn').classList.replace('bg-red-500','bg-yellow-500');
     updateStatus("err", "내비게이션 일시 정지됨");
 }
+
 function onLocation(pos) {
     if (!watching || !route) return;
 
+    // GPS 신호가 잡힐 때만 위치를 보정합니다. (PDR이 움직임을 담당)
     const realLat = pos.coords.latitude;
     const realLon = pos.coords.longitude;
     
-    // 오프셋 적용해서 지도 좌표계로 변환
-    userPos = {
-        lat: realLat - offset.lat,
-        lon: realLon - offset.lon,
-        acc: pos.coords.accuracy
-    };
+    // 오프셋 적용해서 지도 좌표계로 변환 (PDR이 활성화되면 이 코드는 정지된 GPS를 보정하는 역할만 함)
+    userPos.lat = realLat - offset.lat;
+    userPos.lon = realLon - offset.lon;
+    userPos.acc = pos.coords.accuracy;
 
     updateStatus("ok", `GPS 추적 중 | 정확도 ${pos.coords.accuracy.toFixed(1)}m`);
 
@@ -476,14 +356,11 @@ function onLocation(pos) {
     const distToNextNode = haversine(userPos.lat, userPos.lon, target.lat, target.lon); 
     
     // 2. 총 남은 경로 거리 계산
-    // 현재 단계의 남은 거리를 해당 단계의 정의된 길이(step.dist)로 제한하여, GPS 오차로 인한 총 거리 부풀림을 방지합니다.
     let currentStepRemaining = Math.min(step.dist, distToNextNode);
 
     let totalRemainingDist = 0;
-    // 현재 단계의 남은 거리를 우선 추가
     totalRemainingDist += currentStepRemaining; 
     
-    // 다음 단계들의 거리 추가
     for (let i = route.currentStep + 1; i < route.steps.length; i++) {
         totalRemainingDist += route.steps[i].dist;
     }
@@ -492,13 +369,11 @@ function onLocation(pos) {
     updateNavUI(step.instruction, totalRemainingDist);
     
     // 단계 통과 체크 (직선 거리 사용)
-    // 🚨 노드 통과 임계값을 8m에서 15m로 높여 이동 속도(경로 진행)를 빠르게 보이도록 수정
-    if (distToNextNode < 30) { // 30m 이내 진입 시 다음 단계로 (사용자 속도 증가 효과)
+    if (distToNextNode < 30) { // 30m 이내 진입 시 다음 단계로 (PDR 감지보다 GPS가 우세할 경우)
         route.currentStep++;
         if (route.currentStep >= route.steps.length) {
             arrive();
         } else {
-            // 다음 단계로 넘어갈 때 UI 갱신을 위해 거리 재계산 (새로운 단계의 거리와 총 남은 거리)
             const nextStep = route.steps[route.currentStep];
             const nextTarget = AREAS[nextStep.to];
             const nextDistToNextNode = haversine(userPos.lat, userPos.lon, nextTarget.lat, nextTarget.lon); 
@@ -555,7 +430,6 @@ function updateNavUI(instruction, totalRemainingDist) {
     document.getElementById('instruction').textContent = instruction;
     document.getElementById('distance').textContent = `남은 총 경로: ${totalRemainingDist.toFixed(0)}m`;
     
-    // 경로가 있고 현재 단계가 유효할 때만 아이콘 업데이트
     if (route && route.currentStep < route.steps.length) {
         const step = route.steps[route.currentStep];
         document.getElementById('icon').innerHTML = `<i data-lucide="${step.icon}" class="w-10 h-10"></i>`;
